@@ -9,7 +9,7 @@ export const checkAccess = (
   // Logic: User Clearance >= Resource Classification
   if (config.enableMAC) {
     if (user.clearanceLevel < resource.classification) {
-      return { allowed: false, reason: `MAC: Clearance Level ${user.clearanceLevel} is insufficient for ${resource.classification} data.` };
+      return { allowed: false, reason: `MAC: Clearance Level ${SecurityLevel[user.clearanceLevel]} is insufficient for ${SecurityLevel[resource.classification]} data.` };
     }
   }
 
@@ -17,7 +17,8 @@ export const checkAccess = (
   // Logic: User Dept must match Resource Dept OR User is Admin
   if (config.enableABAC) {
     if (user.role !== Role.ADMIN && user.department !== resource.department) {
-       // Exception: If resource is PUBLIC, ABAC might be lenient, but let's be strict for demo
+       // Exception: If resource is PUBLIC, ABAC might be lenient.
+       // For Internal/Confidential/Top Secret, we enforce department boundaries.
        if (resource.classification > SecurityLevel.PUBLIC) {
          return { allowed: false, reason: `ABAC: User department (${user.department}) does not match resource department (${resource.department}).` };
        }
@@ -30,8 +31,9 @@ export const checkAccess = (
     if (resource.classification === SecurityLevel.TOP_SECRET && user.role !== Role.ADMIN) {
       return { allowed: false, reason: "RBAC: Only ADMIN role can access TOP_SECRET resources." };
     }
-    if (resource.classification === SecurityLevel.CONFIDENTIAL && user.role === Role.STAFF) {
-        return { allowed: false, reason: "RBAC: STAFF role cannot access CONFIDENTIAL resources." };
+    // Staff should generally be able to see INTERNAL, but not CONFIDENTIAL
+    if (resource.classification >= SecurityLevel.CONFIDENTIAL && user.role === Role.STAFF) {
+        return { allowed: false, reason: "RBAC: STAFF role cannot access CONFIDENTIAL or higher resources." };
     }
   }
 
@@ -48,13 +50,17 @@ export const checkAccess = (
   }
 
   // 5. DAC (Discretionary Access Control)
-  // Logic: User owns it OR is in sharedWith list OR is Admin
+  // Logic: User owns it OR is in sharedWith list OR is Admin OR is Manager of that Department
   if (config.enableDAC) {
     const isOwner = resource.ownerId === user.id;
     const isShared = resource.sharedWith.includes(user.id);
     const isAdmin = user.role === Role.ADMIN;
     
-    if (!isOwner && !isShared && !isAdmin && resource.classification > SecurityLevel.PUBLIC) {
+    // FIX: Managers should have implicit DAC access to files within their own department
+    // This allows Managers to view "Internal/Confidential" files owned by their staff without explicit sharing.
+    const isDeptManager = user.role === Role.MANAGER && user.department === resource.department;
+    
+    if (!isOwner && !isShared && !isAdmin && !isDeptManager && resource.classification > SecurityLevel.PUBLIC) {
       return { allowed: false, reason: "DAC: You do not own this resource and it has not been shared with you." };
     }
   }

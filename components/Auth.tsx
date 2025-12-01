@@ -2,9 +2,16 @@ import React, { useState } from 'react';
 import { useSecurity } from '../App';
 import { generateCaptcha, hashPassword, validatePasswordStrength } from '../services/securityService';
 import { User, Role, Department, SecurityLevel } from '../types';
-import { Lock, ShieldCheck, UserPlus, RefreshCw, Key } from 'lucide-react';
+import { Lock, ShieldCheck, UserPlus, RefreshCw, Key, AlertTriangle, Info } from 'lucide-react';
 
 type AuthMode = 'LOGIN' | 'REGISTER';
+
+// --- ROLE ACCESS KEYS CONFIGURATION ---
+const ROLE_KEYS: Record<string, string> = {
+    [Role.ADMIN]: 'ROOT_ACCESS_2024',
+    [Role.MANAGER]: 'MANAGER_OPS_01',
+    [Role.AUDITOR]: 'AUDIT_VIEW_99'
+};
 
 const AuthScreen: React.FC = () => {
   const { login, users, addUser, addLog, recordLoginAttempt } = useSecurity();
@@ -22,11 +29,15 @@ const AuthScreen: React.FC = () => {
   const [regUsername, setRegUsername] = useState('');
   const [regEmail, setRegEmail] = useState('');
   const [regPass, setRegPass] = useState('');
+  const [regRole, setRegRole] = useState<Role>(Role.STAFF);
+  const [regDept, setRegDept] = useState<Department>(Department.IT);
+  const [regRoleKey, setRegRoleKey] = useState('');
   
   // Security
   const [captcha, setCaptcha] = useState(generateCaptcha());
   const [captchaInput, setCaptchaInput] = useState('');
   const [error, setError] = useState('');
+  const [showKeysHint, setShowKeysHint] = useState(true);
 
   const refreshCaptcha = () => setCaptcha(generateCaptcha());
 
@@ -100,14 +111,43 @@ const AuthScreen: React.FC = () => {
         return;
     }
 
+    // Captcha
     if (parseInt(captchaInput) !== captcha.answer) {
       setError("Incorrect Captcha.");
       return;
     }
 
+    // Username Uniqueness
     if (users.find(u => u.username === regUsername)) {
         setError("Username taken.");
         return;
+    }
+
+    // ROLE ACCESS KEY VALIDATION
+    // If the selected role is in our ROLE_KEYS list, we must verify the key
+    if (ROLE_KEYS[regRole]) {
+        if (regRoleKey !== ROLE_KEYS[regRole]) {
+            addLog('REGISTER_ATTEMPT', 'DENIED', `Invalid Access Key for role ${regRole}: ${regUsername}`);
+            setError(`Invalid Access Key for ${regRole}. Authorization failed.`);
+            return;
+        }
+    }
+
+    // Map Role to default Clearance Level for Demo Convenience
+    let initialClearance = SecurityLevel.PUBLIC;
+    switch (regRole) {
+        case Role.ADMIN:
+            initialClearance = SecurityLevel.TOP_SECRET;
+            break;
+        case Role.MANAGER:
+        case Role.AUDITOR:
+            initialClearance = SecurityLevel.CONFIDENTIAL;
+            break;
+        case Role.STAFF:
+            initialClearance = SecurityLevel.INTERNAL;
+            break;
+        default:
+            initialClearance = SecurityLevel.PUBLIC;
     }
 
     const newUser: User = {
@@ -116,10 +156,10 @@ const AuthScreen: React.FC = () => {
         fullName: regName,
         email: regEmail,
         passwordHash: await hashPassword(regPass),
-        role: Role.STAFF, // Default
-        department: Department.IT, // Default
-        clearanceLevel: SecurityLevel.PUBLIC, // Default
-        mfaEnabled: true, // Default to secure
+        role: regRole,
+        department: regDept,
+        clearanceLevel: initialClearance, 
+        mfaEnabled: true, 
         isLocked: false,
         failedLoginAttempts: 0,
         biometricsEnabled: false
@@ -128,7 +168,7 @@ const AuthScreen: React.FC = () => {
     addUser(newUser);
     setMode('LOGIN');
     setError('');
-    alert("Registration successful. Please login.");
+    alert(`Registration successful. You have been assigned ${SecurityLevel[initialClearance]} clearance based on your verified role.`);
   };
 
   return (
@@ -177,34 +217,95 @@ const AuthScreen: React.FC = () => {
                 </form>
              ) : (
                 <form onSubmit={handleRegister} className="space-y-4">
-                   <div>
-                    <label className="block text-sm font-medium text-slate-700">Full Name</label>
-                    <input type="text" required value={regName} onChange={e => setRegName(e.target.value)} className="mt-1 w-full rounded-md border p-2 text-sm" />
+                   <div className="flex justify-between items-center mb-2">
+                      <h3 className="text-lg font-bold text-slate-800">New Account</h3>
+                      <button type="button" onClick={() => setShowKeysHint(!showKeysHint)} className="text-indigo-600 hover:text-indigo-800 text-xs flex items-center">
+                         <Info size={14} className="mr-1"/> Keys
+                      </button>
                    </div>
-                   <div>
-                    <label className="block text-sm font-medium text-slate-700">Username</label>
-                    <input type="text" required value={regUsername} onChange={e => setRegUsername(e.target.value)} className="mt-1 w-full rounded-md border p-2 text-sm" />
+                   
+                   {/* DEMO HINT - ALWAYS VISIBLE OR TOGGLED */}
+                   {showKeysHint && (
+                       <div className="bg-yellow-50 border border-yellow-200 p-2 rounded text-xs text-slate-700 mb-2 font-mono">
+                           <p><strong>Admin Key:</strong> {ROLE_KEYS[Role.ADMIN]}</p>
+                           <p><strong>Manager Key:</strong> {ROLE_KEYS[Role.MANAGER]}</p>
+                           <p><strong>Auditor Key:</strong> {ROLE_KEYS[Role.AUDITOR]}</p>
+                       </div>
+                   )}
+
+                   <div className="grid grid-cols-2 gap-2">
+                        <div>
+                            <label className="block text-xs font-medium text-slate-700">Full Name</label>
+                            <input type="text" required value={regName} onChange={e => setRegName(e.target.value)} className="mt-1 w-full rounded-md border p-1.5 text-sm" />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-medium text-slate-700">Username</label>
+                            <input type="text" required value={regUsername} onChange={e => setRegUsername(e.target.value)} className="mt-1 w-full rounded-md border p-1.5 text-sm" />
+                        </div>
                    </div>
+                   
                    <div>
-                    <label className="block text-sm font-medium text-slate-700">Email</label>
-                    <input type="email" required value={regEmail} onChange={e => setRegEmail(e.target.value)} className="mt-1 w-full rounded-md border p-2 text-sm" />
+                    <label className="block text-xs font-medium text-slate-700">Email</label>
+                    <input type="email" required value={regEmail} onChange={e => setRegEmail(e.target.value)} className="mt-1 w-full rounded-md border p-1.5 text-sm" />
                    </div>
+                   
+                   {/* Role Selection */}
+                   <div className="grid grid-cols-2 gap-4">
+                       <div>
+                           <label className="block text-xs font-medium text-slate-700">Role</label>
+                           <select value={regRole} onChange={e => { setRegRole(e.target.value as Role); setRegRoleKey(''); }} className="mt-1 w-full rounded-md border p-1.5 text-sm bg-white">
+                               {Object.values(Role).map(r => (
+                                   <option key={r} value={r}>
+                                     {r} {ROLE_KEYS[r] ? '*' : ''}
+                                   </option>
+                               ))}
+                           </select>
+                           {ROLE_KEYS[regRole] && <p className="text-[10px] text-red-500 mt-0.5">* Key Required</p>}
+                       </div>
+                       <div>
+                           <label className="block text-xs font-medium text-slate-700">Department</label>
+                           <select value={regDept} onChange={e => setRegDept(e.target.value as Department)} className="mt-1 w-full rounded-md border p-1.5 text-sm bg-white">
+                               {Object.values(Department).map(d => (
+                                   <option key={d} value={d}>{d}</option>
+                               ))}
+                           </select>
+                       </div>
+                   </div>
+
+                   {/* CONDITIONAL ROLE KEY INPUT */}
+                   {ROLE_KEYS[regRole] && (
+                       <div className="bg-red-50 p-2 rounded border border-red-100 animate-in fade-in slide-in-from-top-1 duration-300">
+                           <label className="block text-xs font-bold text-red-700 flex items-center mb-1">
+                               <AlertTriangle size={12} className="mr-1"/> 
+                               Enter {regRole} Access Key:
+                           </label>
+                           <input 
+                               type="password" 
+                               required 
+                               placeholder="Enter Key..." 
+                               value={regRoleKey} 
+                               onChange={e => setRegRoleKey(e.target.value)} 
+                               className="block w-full rounded-md border-red-300 p-1.5 text-sm focus:ring-red-500 focus:border-red-500 shadow-sm" 
+                           />
+                       </div>
+                   )}
+
                    <div>
-                    <label className="block text-sm font-medium text-slate-700">Password (Strict Policy)</label>
-                    <input type="password" required value={regPass} onChange={e => setRegPass(e.target.value)} className="mt-1 w-full rounded-md border p-2 text-sm" />
-                    <p className="text-xs text-slate-400 mt-1">8+ chars, 1 uppercase, 1 symbol, 1 number.</p>
+                    <label className="block text-xs font-medium text-slate-700">Password (Strict Policy)</label>
+                    <input type="password" required value={regPass} onChange={e => setRegPass(e.target.value)} className="mt-1 w-full rounded-md border p-1.5 text-sm" />
+                    <p className="text-[10px] text-slate-400 mt-1">8+ chars, 1 uppercase, 1 symbol, 1 number.</p>
                    </div>
                    
                    <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
                     <div className="flex justify-between items-center mb-2">
-                        <span className="text-sm font-semibold text-slate-600">Security Check: {captcha.question} = ?</span>
+                        <span className="text-xs font-semibold text-slate-600">Captcha: {captcha.question} = ?</span>
                         <button type="button" onClick={refreshCaptcha}><RefreshCw size={14} className="text-slate-400 hover:text-indigo-500" /></button>
                     </div>
-                    <input type="number" required placeholder="Answer" value={captchaInput} onChange={e => setCaptchaInput(e.target.value)} className="w-full rounded border-slate-300 p-2 text-sm border" />
+                    <input type="number" required placeholder="Answer" value={captchaInput} onChange={e => setCaptchaInput(e.target.value)} className="w-full rounded border-slate-300 p-1.5 text-sm border" />
                    </div>
 
                    <button type="submit" className="w-full flex justify-center py-2 px-4 rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700">
-                     <UserPlus className="w-4 h-4 mr-2" /> Register
+                     <UserPlus className="w-4 h-4 mr-2" /> Complete Registration
                    </button>
                    <div className="mt-4 text-center">
                     <button type="button" onClick={() => { setMode('LOGIN'); setError(''); refreshCaptcha(); }} className="text-sm text-indigo-600 hover:text-indigo-500">Back to Login</button>
