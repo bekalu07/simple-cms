@@ -1,0 +1,8 @@
+{
+  "name": "SecureGuard CMS",
+  "description": "A high-security Contact Management System demonstrating MAC, DAC, RBAC, RuBAC, and ABAC access controls with AI-powered audit analysis.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
